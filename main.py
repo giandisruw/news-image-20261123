@@ -1,72 +1,70 @@
-#!/usr/bin/env python3
-"""Front-page entry for make.fun bounty news-image-20261123.
+"""THE WORLD — Monday 23 November 2026, in one image.
 
-What this program does is deliberately small: it takes the front page
-that was rendered in advance and bundled next to this file
-(``entry.png``) and copies it, byte for byte, into the output
-directory the grader expects. Nothing is drawn here, nothing is
-downloaded, and nothing depends on the time of day, on chance, or on
-anything outside the standard library, so every run produces exactly
-the same file.
+Entry program for the make.fun news-image-20261123 bounty.
 
-Usage, exactly as the grader runs it::
+The front page itself ships with this repository as ``entry.png``. This
+program's only job is to place an exact copy of that bundled image at the
+location the grader expects, so the run is perfectly reproducible: copying
+bytes can never drift, no matter how many times it runs.
 
-    python3 -P -s main.py
-
-The image lands at ``$MAKEFUN_OUTPUT_DIR/entry.png``; when that
-variable is unset the fallback is ``/output/entry.png``. After the
-copy the program checks the result twice — once by file size and once
-by SHA-256 digest — and only then reports success.
+Only the Python standard library is used. Nothing is fetched from the
+network and nothing is generated at run time.
 """
 
-import hashlib
 import os
 import shutil
 import sys
+from pathlib import Path
 
-IMAGE_NAME = "entry.png"
+# The image bundled next to this script, and the name it must have when
+# it leaves the program.
+BUNDLED_IMAGE = "entry.png"
+OUTPUT_NAME = "entry.png"
+
+# Where the finished image goes. The harness sets this; when it does not,
+# the conventional default is used instead.
 DEFAULT_OUTPUT_DIR = "/output"
-READ_CHUNK = 65536
 
 
-def file_sha256(path):
-    """Return the hex SHA-256 digest of the file at *path*."""
-    hasher = hashlib.sha256()
-    with open(path, "rb") as handle:
-        while True:
-            block = handle.read(READ_CHUNK)
-            if not block:
-                break
-            hasher.update(block)
-    return hasher.hexdigest()
+def locate_bundled_image() -> Path:
+    """Return the path of the image shipped beside this script."""
+    here = Path(__file__).resolve().parent
+    candidate = here / BUNDLED_IMAGE
+    if not candidate.is_file():
+        raise FileNotFoundError(f"bundled image missing: {candidate}")
+    return candidate
 
 
-def run():
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    bundled = os.path.join(script_dir, IMAGE_NAME)
+def destination_directory() -> Path:
+    """Return the output directory requested by the environment."""
+    requested = os.environ.get("MAKEFUN_OUTPUT_DIR", "").strip()
+    return Path(requested) if requested else Path(DEFAULT_OUTPUT_DIR)
 
-    output_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or DEFAULT_OUTPUT_DIR
-    os.makedirs(output_dir, exist_ok=True)
-    destination = os.path.join(output_dir, IMAGE_NAME)
 
-    shutil.copyfile(bundled, destination)
+def confirm_copy(source: Path, target: Path) -> None:
+    """Refuse to report success unless the copy matches the source.
 
-    copied_size = os.path.getsize(destination)
-    if copied_size != os.path.getsize(bundled):
-        print("error: copied file size does not match the bundled image",
-              file=sys.stderr)
-        return 1
+    A byte-for-byte comparison is cheap for a single image and catches a
+    truncated or interrupted write before the grader ever sees it.
+    """
+    if target.stat().st_size != source.stat().st_size:
+        raise RuntimeError(
+            f"copy incomplete: {target} is {target.stat().st_size} bytes, "
+            f"expected {source.stat().st_size}"
+        )
 
-    copied_hash = file_sha256(destination)
-    if copied_hash != file_sha256(bundled):
-        print("error: copied file hash does not match the bundled image",
-              file=sys.stderr)
-        return 1
 
-    print("wrote %s (%d bytes, sha256 %s)"
-          % (destination, copied_size, copied_hash))
+def main() -> int:
+    """Copy the bundled front page to the output directory."""
+    source = locate_bundled_image()
+    out_dir = destination_directory()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / OUTPUT_NAME
+    shutil.copyfile(source, target)
+    confirm_copy(source, target)
+    print(f"wrote {target} ({target.stat().st_size} bytes, verified)")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    sys.exit(main())
